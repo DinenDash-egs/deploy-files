@@ -1,0 +1,366 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: dinendash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      affinity:
+          podAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - auth-mongo
+                topologyKey: "grupo"
+      containers:
+        - name: auth-service
+          image: registry.deti/dinendash/auth-service:v2
+          ports:
+            - containerPort: 8001
+          env:
+            - name: MONGO_URI
+              value: "mongodb://auth-mongo:27017"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: SECRET_KEY
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: DB_NAME
+          envFrom:
+            - secretRef:
+                name: app-secrets
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: dinendash
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - port: 8001
+      targetPort: 8001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: route-optimization-service
+  namespace: dinendash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: route-optimization-service
+  template:
+    metadata:
+      labels:
+        app: route-optimization-service
+    spec:
+      containers:
+        - name: route-optimization-service
+          image: registry.deti/dinendash/route-optimization-service:v2
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: API_KEY
+          envFrom:
+            - secretRef:
+                name: app-secrets
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: route-optimization-service
+  namespace: dinendash
+spec:
+  selector:
+    app: route-optimization-service
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracking-service
+  namespace: dinendash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tracking-service
+  template:
+    metadata:
+      labels:
+        app: tracking-service
+    spec:
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - tracking-mongo
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: tracking-service
+          image: registry.deti/dinendash/tracking-service:v2
+          ports:
+            - containerPort: 5007
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: TRACKING_MONGO_URI
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: TRACKING_DB_NAME
+            - name: RABBITMQ_HOST
+              value: rabbitmq
+          envFrom:
+            - secretRef:
+                name: app-secrets
+          volumeMounts:
+            - name: tracking-mongo-storage
+              mountPath: /data/db
+      volumes:
+        - name: tracking-mongo-storage
+          persistentVolumeClaim:
+            claimName: tracking-mongo-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tracking-service
+  namespace: dinendash
+spec:
+  selector:
+    app: tracking-service
+  ports:
+    - port: 5007
+      targetPort: 5007
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-client
+  namespace: dinendash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend-client
+  template:
+    metadata:
+      labels:
+        app: frontend-client
+    spec:
+      containers:
+        - name: frontend-client
+          image: registry.deti/dinendash/frontend-client:v2
+          ports:
+            - containerPort: 5173
+          envFrom:
+            - configMapRef:
+                name: client-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-client
+  namespace: dinendash
+spec:
+  selector:
+    app: frontend-client
+  ports:
+    - port: 5173
+      targetPort: 5173
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-courier
+  namespace: dinendash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend-courier
+  template:
+    metadata:
+      labels:
+        app: frontend-courier
+    spec:
+      containers:
+        - name: frontend-courier
+          image: registry.deti/dinendash/frontend-courier:v2
+          ports:
+            - containerPort: 5173
+          envFrom:
+            - configMapRef:
+                name: client-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-courier
+  namespace: dinendash
+spec:
+  selector:
+    app: frontend-courier
+  ports:
+    - port: 5173
+      targetPort: 5173
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dinendash-ingress
+  namespace: dinendash
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: grupo8-egs.deti.ua.pt
+      http:
+        paths:
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8001
+          - path: /tracking
+            pathType: Prefix
+            backend:
+              service:
+                name: tracking-service
+                port:
+                  number: 5007
+          - path: /routes
+            pathType: Prefix
+            backend:
+              service:
+                name: route-optimization-service
+                port:
+                  number: 8000
+          - path: /client
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-client
+                port:
+                  number: 5173
+          - path: /courier
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-courier
+                port:
+                  number: 5173
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-mongo
+  namespace: dinendash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-mongo
+  template:
+    metadata:
+      labels:
+        app: auth-mongo
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:latest
+          ports:
+            - containerPort: 27017
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-mongo
+  namespace: dinendash
+spec:
+  selector:
+    app: auth-mongo
+  ports:
+    - port: 27017
+      targetPort: 27017
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracking-mongo
+  namespace: dinendash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tracking-mongo
+  template:
+    metadata:
+      labels:
+        app: tracking-mongo
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:4.4
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: tracking-mongo-storage
+              mountPath: /data/db
+      volumes:
+        - name: tracking-mongo-storage
+          persistentVolumeClaim:
+            claimName: tracking-mongo-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tracking-mongo
+  namespace: dinendash
+spec:
+  selector:
+    app: tracking-mongo
+  ports:
+    - port: 27017
+      targetPort: 27017

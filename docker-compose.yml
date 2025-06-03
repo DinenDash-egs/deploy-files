@@ -1,0 +1,117 @@
+version: "3.8"
+
+services:
+  traefik:
+    image: traefik:v3.0
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - traefik
+
+  auth-service:
+    build:
+      context: ./auth-service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=PathPrefix(`/auth`)"
+      - "traefik.http.services.auth.loadbalancer.server.port=8001"
+    networks:
+      - traefik
+    depends_on:
+      - auth-mongo
+    environment:
+      - MONGO_URI=mongodb://auth-mongo:27017
+
+  auth-mongo:
+    image: mongo:latest
+    ports:
+      - "27019:27017"
+    volumes:
+      - auth-mongo-data:/data/db
+
+  route-optimization-service:
+    build:
+      context: ./route-optimization-service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.routes.rule=PathPrefix(`/routes`)"
+      - "traefik.http.services.routes.loadbalancer.server.port=8000"
+    networks:
+      - traefik
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5673:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+
+  tracking-mongo:
+    image: mongo:latest
+    ports:
+      - "27020:27017"
+    volumes:
+      - tracking-mongo-data:/data/db
+
+  tracking-service:
+    build:
+      context: ./tracking-service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tracking.rule=PathPrefix(`/tracking`)"
+      - "traefik.http.services.tracking.loadbalancer.server.port=5007"
+    networks:
+      - traefik
+    depends_on:
+      - rabbitmq
+      - tracking-mongo
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - MONGO_URI=mongodb://tracking-mongo:27017
+
+  client:
+    build:
+      context: ./front-end/client
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.client.rule=PathPrefix(`/client`)"
+      - "traefik.http.services.client.loadbalancer.server.port=5173"
+    networks:
+      - traefik
+    volumes:
+      - ./front-end/client:/app
+      - /app/node_modules
+    command: npm run dev -- --host
+
+  courier:
+    build:
+      context: ./front-end/courier
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.courier.rule=PathPrefix(`/courier`)"
+      - "traefik.http.services.courier.loadbalancer.server.port=5173"
+    networks:
+      - traefik
+    volumes:
+      - ./front-end/courier:/app
+      - /app/node_modules
+    command: npm run dev -- --host
+
+networks:
+  traefik:
+    external: false
+
+volumes:
+  auth-mongo-data:
+  tracking-mongo-data:
