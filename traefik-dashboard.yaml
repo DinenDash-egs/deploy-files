@@ -1,15 +1,20 @@
 # traefik-dashboard.yaml
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
   name: traefik-dashboard
   namespace: kube-system
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
-  entryPoints:
-    - web
-  routes:
-    - match: PathPrefix(`/dashboard`) || PathPrefix(`/api`)
-      kind: Rule
-      services:
-        - name: api@internal
-          kind: TraefikService
+  rules:
+  - host: grupo8-egs.deti.ua.pt
+    http:
+      paths:
+      - path: /traefik
+        pathType: Prefix
+        backend:
+          service:
+            name: traefik
+            port:
+              number: 9000
