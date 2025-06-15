@@ -4,9 +4,15 @@ metadata:
   name: dinendash-ingress
   namespace: dinendash
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: traefik
+  tls:
+  - hosts:
+    - grupo8-egs.deti.ua.pt
+    secretName: dinendash-tls-secret
   rules:
     - host: grupo8-egs.deti.ua.pt
       http:

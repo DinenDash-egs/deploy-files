@@ -225,7 +225,7 @@ spec:
     spec:
       containers:
         - name: frontend-courier
-          image: registry.deti/dinendash/frontend-courier:v5
+          image: registry.deti/dinendash/frontend-courier:v6
           ports:
             - containerPort: 5173
           envFrom:
